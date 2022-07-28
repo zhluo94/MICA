@@ -69,6 +69,11 @@ int append_pid;
 /* helper */
 int thread_count = 0;
 
+/* added by ZL */
+char* _fun_name;
+UINT32 _fun_interval;
+UINT32 fun_count;
+
 /**********************************************
  *                    MAIN                    *
  **********************************************/
@@ -439,6 +444,42 @@ VOID Fini_memstackdist_only(INT32 code, VOID* v){
 	fini_memstackdist(code, v);
 }
 
+VOID Increment_fun_count(){
+	if(fun_count == _fun_interval)
+	{
+		memstackdist_fun_interval_output();
+		memstackdist_fun_interval_reset();
+		fun_count = 0;
+	}
+	fun_count++;
+}
+
+VOID Image_load(IMG img, VOID *v)
+{ 
+    // Instrument the _fun_name function, increment fun_count
+    //  Find the _fun_name function.
+    RTN funRtn = RTN_FindByName(img, _fun_name);
+    if (RTN_Valid(funRtn))
+    {  
+	cerr << "RTN Found" << endl;
+        RTN_Open(funRtn);
+        RTN_InsertCall(funRtn, IPOINT_BEFORE, (AFUNPTR)Increment_fun_count, IARG_END); 
+        RTN_Close(funRtn);
+    }
+}
+
+VOID RTN_load(RTN rtn, VOID *v)
+{
+    // Instrument the _fun_name function, increment fun_count
+    //  Find the _fun_name function.
+    if (strcmp(RTN_Name(rtn).c_str(), _fun_name) == 0)
+    {
+        RTN_Open(rtn);
+        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)Increment_fun_count, IARG_END);
+        RTN_Close(rtn);
+    }
+}
+
 /* MY TYPE */
 VOID Instruction_custom(INS ins, VOID* v){
 
@@ -523,7 +564,7 @@ int main(int argc, char* argv[]){
 
 	setup_mica_log(&_log);
 
-	read_config(&_log, &interval_size, &mode, &_ilp_win_size, &_block_size, &_page_size, &_itypes_spec_file, &append_pid);
+	read_config(&_log, &interval_size, &mode, &_ilp_win_size, &_block_size, &_page_size, &_itypes_spec_file, &append_pid, &_fun_name, &_fun_interval);
 
 	cerr << "interval_size: " << interval_size << ", mode: " << mode << endl;
 
@@ -531,6 +572,7 @@ int main(int argc, char* argv[]){
 	interval_ins_count_for_hpc_alignment = 0;
 	total_ins_count = 0;
 	total_ins_count_for_hpc_alignment = 0;
+	fun_count = 0;
 
 	for(i=0; i < MAX_MEM_TABLE_ENTRIES; i++){
 		ins_buffer[i] = (ins_buffer_entry*)NULL;
@@ -586,8 +628,17 @@ int main(int argc, char* argv[]){
 			PIN_AddFiniFunction(Fini_memfootprint_only, 0);
 			break;
 		case MODE_MEMSTACKDIST:
+			if(_fun_interval > 0)
+                        {
+                                PIN_InitSymbols();
+			}
 			init_memstackdist();
 			PIN_Init(argc, argv);
+			if(_fun_interval > 0)
+                        {
+				IMG_AddInstrumentFunction(Image_load, 0);
+				//RTN_AddInstrumentFunction(RTN_load, 0);
+                        }
 			INS_AddInstrumentFunction(Instruction_memstackdist_only, 0);
 			PIN_AddFiniFunction(Fini_memstackdist_only, 0);
 			break;

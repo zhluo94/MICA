@@ -34,8 +34,8 @@ void setup_mica_log(ofstream *log){
  * ilp_size: <integer>
  * itypes_spec_file: <string>
  */
-enum CONFIG_PARAM {UNKNOWN_CONFIG_PARAM = -1, ANALYSIS_TYPE = 0, INTERVAL_SIZE, ILP_SIZE, _BLOCK_SIZE, _PAGE_SIZE, ITYPES_SPEC_FILE, APPEND_PID, CONF_PAR_CNT};
-const char* config_params_str[CONF_PAR_CNT] = {"analysis_type",   "interval_size", "ilp_size", "block_size", "page_size", "itypes_spec_file"};
+enum CONFIG_PARAM {UNKNOWN_CONFIG_PARAM = -1, ANALYSIS_TYPE = 0, INTERVAL_SIZE, ILP_SIZE, _BLOCK_SIZE, _PAGE_SIZE, ITYPES_SPEC_FILE, APPEND_PID, FUN_NAME, FUN_INTERVAL, CONF_PAR_CNT};
+const char* config_params_str[CONF_PAR_CNT] = {"analysis_type",   "interval_size", "ilp_size", "block_size", "page_size", "itypes_spec_file", "append_id", "fun_name", "fun_interval"};
 enum ANALYSIS_TYPE {UNKNOWN_ANALYSIS_TYPE = -1, ALL=0, ILP, ILP_ONE, ITYPES, PPM, MICA_REG, STRIDE, MEMFOOTPRINT, MEMSTACKDIST, CUSTOM, ANA_TYPE_CNT};
 const char* analysis_types_str[ANA_TYPE_CNT] = { "all",   "ilp", "ilp_one", "itypes", "ppm", "reg", "stride", "memfootprint", "memstackdist", "custom"};
 
@@ -48,6 +48,9 @@ enum CONFIG_PARAM findConfigParam(char* s){
 	if(strcmp(s, "page_size") == 0){ return _PAGE_SIZE; }
 	if(strcmp(s, "itypes_spec_file") == 0){ return ITYPES_SPEC_FILE; }
 	if(strcmp(s, "append_pid") == 0){ return APPEND_PID; }
+	// added by ZL
+	if(strcmp(s, "fun_name") == 0){ return FUN_NAME; }
+	if(strcmp(s, "fun_interval") == 0){ return FUN_INTERVAL; }
 
 	return UNKNOWN_CONFIG_PARAM;
 }
@@ -68,7 +71,7 @@ enum ANALYSIS_TYPE findAnalysisType(char* s){
 	return UNKNOWN_ANALYSIS_TYPE;
 }
 
-void read_config(ofstream* log, INT64* intervalSize, MODE* mode, UINT32* _ilp_win_size, UINT32* _block_size, UINT32* _page_size, char** _itypes_spec_file, int* append_pid){
+void read_config(ofstream* log, INT64* intervalSize, MODE* mode, UINT32* _ilp_win_size, UINT32* _block_size, UINT32* _page_size, char** _itypes_spec_file, int* append_pid, char** _fun_name, UINT32* _fun_interval){
 
 	int i;
 	char* param;
@@ -92,6 +95,7 @@ void read_config(ofstream* log, INT64* intervalSize, MODE* mode, UINT32* _ilp_wi
 	*_ilp_win_size = 0;
 	*_block_size = 6; // default block size = 64 bytes (2^6)
 	*_page_size = 12; // default page size = 4KB (2^12)
+	*_fun_interval = 0; // default fun interval = 0
 
 	while(!feof(config_file)){
 
@@ -241,6 +245,21 @@ void read_config(ofstream* log, INT64* intervalSize, MODE* mode, UINT32* _ilp_wi
 					exit(1);
 				}
 				break;
+
+			// added by ZL
+			case FUN_NAME:
+				*_fun_name = (char*)checked_malloc((strlen(val)+1)*sizeof(char));
+				strcpy(*_fun_name, val);
+				cerr << "function name: " << *_fun_name << endl;
+                                (*log) << "function name: " << *_fun_name << endl;
+				break;
+
+			case FUN_INTERVAL:
+				*_fun_interval = (UINT32)atoi(val);
+                                cerr << "function interval: " << *_fun_interval << endl;
+                                (*log) << "function interval: " << *_fun_interval << endl;
+				break;
+
 			default:
 				cerr << "ERROR: Unknown config parameter specified: " << param << " (" << val << ")" << endl;
 				cerr << "Known config parameters:" << endl;

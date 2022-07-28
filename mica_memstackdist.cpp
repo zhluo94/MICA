@@ -23,6 +23,8 @@ extern INT64 total_ins_count_for_hpc_alignment;
 
 extern UINT32 _block_size;
 
+extern UINT32 _fun_interval;
+
 static UINT32 memstackdist_block_size;
 
 static ofstream output_file_memstackdist;
@@ -93,6 +95,11 @@ void init_memstackdist(){
 		output_file_memstackdist.open(mkfilename("memstackdist_phases_int"), ios::out|ios::trunc);
 		output_file_memstackdist.close();
 	}
+	
+	if(_fun_interval > 0){
+		output_file_memstackdist.open(mkfilename("memstackdist_funs_int"), ios::out|ios::trunc);
+                output_file_memstackdist.close();
+	}
 }
 
 /*VOID memstackdist_instr_full(){
@@ -125,6 +132,26 @@ VOID memstackdist_instr_interval_reset(){
 	for(i=0; i < BUCKET_CNT; i++){
 		buckets[i] = 0;
 	}
+}
+
+VOID memstackdist_fun_interval_output(){
+	int i;
+        output_file_memstackdist.open(mkfilename("memstackdist_funs_int"), ios::out|ios::app);
+        output_file_memstackdist << mem_ref_cnt << " " << cold_refs;
+        for(i=0; i < BUCKET_CNT; i++){
+                output_file_memstackdist << " " << buckets[i];
+        }
+        output_file_memstackdist << endl;
+        output_file_memstackdist.close();
+}
+
+VOID memstackdist_fun_interval_reset(){
+        int i;
+        mem_ref_cnt = 0;
+        cold_refs = 0;
+        for(i=0; i < BUCKET_CNT; i++){
+                buckets[i] = 0;
+        }
 }
 
 static VOID memstackdist_instr_interval(){
@@ -409,9 +436,14 @@ VOID fini_memstackdist(INT32 code, VOID* v){
 	int i;
 
 	if(interval_size == -1){
-		output_file_memstackdist.open(mkfilename("memstackdist_full_int"), ios::out|ios::trunc);
+		if (_fun_interval > 0) {
+			output_file_memstackdist.open(mkfilename("memstackdist_funs_int"), ios::out|ios::app);
+		}
+		else {
+			output_file_memstackdist.open(mkfilename("memstackdist_full_int"), ios::out|ios::trunc);
+		}
 	}
-	else{
+	else {
 		output_file_memstackdist.open(mkfilename("memstackdist_phases_int"), ios::out|ios::app);
 	}
 	output_file_memstackdist << mem_ref_cnt << " " << cold_refs;

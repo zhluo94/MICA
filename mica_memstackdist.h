@@ -16,3 +16,6 @@ VOID fini_memstackdist(INT32 code, VOID* v);
 VOID memstackdist_memRead(ADDRINT effMemAddr, ADDRINT size);
 VOID memstackdist_instr_interval_output();
 VOID memstackdist_instr_interval_reset();
+
+VOID memstackdist_fun_interval_output();
+VOID memstackdist_fun_interval_reset();
