@@ -25,6 +25,12 @@ extern UINT32 _block_size;
 
 extern UINT32 _fun_interval;
 
+extern UINT32 enable_memstackdist;
+
+extern UINT32 multithreaded;
+
+extern PIN_LOCK pinLock;
+
 static UINT32 memstackdist_block_size;
 
 static ofstream output_file_memstackdist;
@@ -114,6 +120,12 @@ static ADDRINT memstackdist_instr_intervals(){
 	return (ADDRINT)(interval_ins_count_for_hpc_alignment == interval_size);
 }
 
+static ADDRINT memstackdist_instr_enable(){
+	/* checking whether to enable memstackdist */
+	
+	return (ADDRINT)(enable_memstackdist > 0);
+}
+
 VOID memstackdist_instr_interval_output(){
 	int i;
 	output_file_memstackdist.open(mkfilename("memstackdist_phases_int"), ios::out|ios::app);
@@ -146,12 +158,25 @@ VOID memstackdist_fun_interval_output(){
 }
 
 VOID memstackdist_fun_interval_reset(){
-        int i;
+	int i;
         mem_ref_cnt = 0;
         cold_refs = 0;
         for(i=0; i < BUCKET_CNT; i++){
                 buckets[i] = 0;
+		borderline_stack_entries[i] = NULL;
         }
+	/* hash table */
+	for (i = 0; i < MAX_MEM_TABLE_ENTRIES; i++) {
+		hashTableCacheBlocks_fast[i] = NULL;
+	}
+	/* access stack */
+	/* a dummy entry is inserted on the stack top to save some checks later */
+	/* since the dummy entry is not in the hash table, it should never be used */
+	stack_top->block_addr = 0;
+	stack_top->above = NULL;
+	stack_top->below = NULL;
+	stack_top->bucket = 0;
+	stack_size = 1;
 }
 
 static VOID memstackdist_instr_interval(){
@@ -373,6 +398,10 @@ static INT64 det_reuse_dist_bucket(stack_entry* e){
 /* register memory access (either read of write) determine which cache lines are touched */
 VOID memstackdist_memRead(ADDRINT effMemAddr, ADDRINT size){
 
+	if(multithreaded > 0)
+	{
+		PIN_GetLock(&pinLock, 0);
+	}
 	ADDRINT a, endAddr, addr, upperAddr, indexInChunk;
 	stack_entry** chunk;
 	stack_entry* entry_for_addr;
@@ -411,16 +440,25 @@ VOID memstackdist_memRead(ADDRINT effMemAddr, ADDRINT size){
 
 		mem_ref_cnt++;
 	}
+	
+	if(multithreaded > 0) 
+        {
+                PIN_ReleaseLock(&pinLock);
+        }
 }
 
 VOID instrument_memstackdist(INS ins, VOID *v){
 
 	if( INS_IsMemoryRead(ins) ){
 
-		INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_memRead, IARG_MEMORYREAD_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+		INS_InsertIfCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_instr_enable, IARG_END);
+		INS_InsertThenCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_memRead, IARG_MEMORYREAD_EA, IARG_MEMORYREAD_SIZE, IARG_END);
 
 		if( INS_HasMemoryRead2(ins) )
-			INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_memRead, IARG_MEMORYREAD2_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+		{	
+			INS_InsertIfCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_instr_enable, IARG_END);
+			INS_InsertThenCall(ins, IPOINT_BEFORE, (AFUNPTR)memstackdist_memRead, IARG_MEMORYREAD2_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+		}
 	}
 
 	if(interval_size != -1){

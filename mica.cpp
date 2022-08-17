@@ -73,6 +73,9 @@ int thread_count = 0;
 char* _fun_name;
 UINT32 _fun_interval;
 UINT32 fun_count;
+UINT32 enable_memstackdist;
+UINT32 multithreaded;
+PIN_LOCK pinLock;
 
 /**********************************************
  *                    MAIN                    *
@@ -445,6 +448,10 @@ VOID Fini_memstackdist_only(INT32 code, VOID* v){
 }
 
 VOID Increment_fun_count(){
+	if(multithreaded > 0)
+        {
+                PIN_GetLock(&pinLock, 0);
+        }
 	if(fun_count == _fun_interval)
 	{
 		memstackdist_fun_interval_output();
@@ -452,19 +459,91 @@ VOID Increment_fun_count(){
 		fun_count = 0;
 	}
 	fun_count++;
+	enable_memstackdist = 1;
+	cerr << "Enable memstackdist, fun_count " << fun_count << endl;
+	
+	if(multithreaded > 0)
+        {
+                PIN_ReleaseLock(&pinLock);
+        }
+}
+
+VOID Disable_memstackdist(){
+	if(multithreaded > 0)
+        {
+                PIN_GetLock(&pinLock, 0);
+        }
+	enable_memstackdist = 0;
+	cerr << "Disable memstackdist" << endl;
+	if(multithreaded > 0)
+        {
+                PIN_ReleaseLock(&pinLock);
+        }
 }
 
 VOID Image_load(IMG img, VOID *v)
 { 
     // Instrument the _fun_name function, increment fun_count
     //  Find the _fun_name function.
+    /*cerr << "Loading " << IMG_Name(img) << endl;
+    for( SEC sec= IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec) )
+    {
+	    cerr << "Sec: " << SEC_Name(sec) << endl;
+	    for( RTN rtn= SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn) )
+	    {
+		    cerr << "RTN: " << RTN_Name(rtn) << endl;
+	    }
+    }*/
     RTN funRtn = RTN_FindByName(img, _fun_name);
     if (RTN_Valid(funRtn))
     {  
 	cerr << "RTN Found" << endl;
         RTN_Open(funRtn);
         RTN_InsertCall(funRtn, IPOINT_BEFORE, (AFUNPTR)Increment_fun_count, IARG_END); 
-        RTN_Close(funRtn);
+	RTN_Close(funRtn);
+    }
+    else 
+    {
+	// Find mangled / decorated RTN names
+	for( SEC sec= IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec) )
+    	{
+            for( RTN rtn= SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn) )
+            {
+		if(RTN_Name(rtn).find(_fun_name) != string::npos)
+		{
+		    cerr << "Decorated RTN Found: " << RTN_Name(rtn) << endl;
+		    RTN_Open(rtn);
+        	    RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)Increment_fun_count, IARG_END);
+        	    RTN_Close(rtn);
+		}
+            }
+    	}
+    }
+
+    RTN returnRtn = RTN_FindByName(img, "return_helper");
+    if (RTN_Valid(returnRtn))
+    {
+	cerr << "Return RTN Found" << endl;
+    	RTN_Open(returnRtn);
+        RTN_InsertCall(returnRtn, IPOINT_BEFORE, (AFUNPTR)Disable_memstackdist, IARG_END);
+        RTN_Close(returnRtn);
+    }
+    else
+    {
+        // Find mangled / decorated RTN names
+        for( SEC sec= IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec) )
+        {
+            for( RTN rtn= SEC_RtnHead(sec); RTN_Valid(rtn); rtn = RTN_Next(rtn) )
+            {
+                if(RTN_Name(rtn).find("return_helper") != string::npos)
+                {
+                    cerr << "Decorated Return RTN Found: " << RTN_Name(rtn) << endl;
+                    RTN_Open(rtn);
+                    RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)Disable_memstackdist, IARG_END);
+                    RTN_Close(rtn);
+                }
+            }
+        }
     }
 }
 
@@ -476,7 +555,7 @@ VOID RTN_load(RTN rtn, VOID *v)
     {
         RTN_Open(rtn);
         RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)Increment_fun_count, IARG_END);
-        RTN_Close(rtn);
+	RTN_Close(rtn);
     }
 }
 
@@ -550,6 +629,7 @@ VOID ThreadStart(THREADID id, CONTEXT *context, INT32 flags, VOID *data)
 	{
 		LOG_MSG("WARNING: Thread creation detected, results can be corrupted!\n");
 		WARNING_MSG("Thread creation detected, results can be corrupted!");
+		multithreaded = 1;
 	}
 }
 
@@ -573,6 +653,8 @@ int main(int argc, char* argv[]){
 	total_ins_count = 0;
 	total_ins_count_for_hpc_alignment = 0;
 	fun_count = 0;
+	enable_memstackdist = 0;
+	multithreaded = 0;
 
 	for(i=0; i < MAX_MEM_TABLE_ENTRIES; i++){
 		ins_buffer[i] = (ins_buffer_entry*)NULL;
@@ -628,6 +710,8 @@ int main(int argc, char* argv[]){
 			PIN_AddFiniFunction(Fini_memfootprint_only, 0);
 			break;
 		case MODE_MEMSTACKDIST:
+			// Initialize the pin lock
+    			PIN_InitLock(&pinLock);
 			if(_fun_interval > 0)
                         {
                                 PIN_InitSymbols();
@@ -636,6 +720,7 @@ int main(int argc, char* argv[]){
 			PIN_Init(argc, argv);
 			if(_fun_interval > 0)
                         {
+				enable_memstackdist = 0;
 				IMG_AddInstrumentFunction(Image_load, 0);
 				//RTN_AddInstrumentFunction(RTN_load, 0);
                         }
